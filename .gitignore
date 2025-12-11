@@ -1,0 +1,7 @@
+node_modules
+build
+.env
+backend/downloads
+backend/cookies.txt
+*.exe
+.DS_Store
