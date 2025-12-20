@@ -1,10 +1,12 @@
+/* --- frontend/src/components/BentoGrid.js --- */
+
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
   ArrowUpRight, Youtube, Instagram, Music, 
   Image, Mic, Scissors, Type, CloudLightning,
-  Play, Zap, Wand2, Layers
+  Play, Wand2, FileAudio, FileVideo
 } from 'lucide-react';
 
 // --- COMPONENTS ---
@@ -45,7 +47,7 @@ const BentoGrid = () => {
   return (
     <div className="grid grid-cols-1 md:grid-cols-4 auto-rows-[auto] gap-6 max-w-[1280px] mx-auto px-6 pb-32">
       
-      {/* 1. YOUTUBE (Hero - 2x2) */}
+      {/* 1. YOUTUBE (Flagship - 2x2) */}
       <Card to="/tools/youtube" className="md:col-span-2 md:row-span-2 min-h-[420px] relative overflow-hidden bg-gradient-to-br from-white to-slate-50">
         <div className="flex flex-col h-full justify-between relative z-20">
           <div className="flex justify-between items-start">
@@ -53,16 +55,16 @@ const BentoGrid = () => {
               <Youtube size={32} fill="currentColor" />
             </IconBadge>
             <div className="px-4 py-1.5 bg-white/60 backdrop-blur-md border border-white/60 rounded-full text-[11px] font-bold text-slate-500 uppercase tracking-widest shadow-sm">
-               Flagship V5
+               Most Popular
             </div>
           </div>
           
           <div className="space-y-4 max-w-md mt-auto">
             <h2 className="text-5xl md:text-6xl font-bold text-slate-900 tracking-tighter leading-[0.9]">
-              YouTube <br/><span className="text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-orange-600">Studio.</span>
+              YouTube <br/><span className="text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-orange-600">Downloader.</span>
             </h2>
             <p className="text-slate-500 font-medium text-lg leading-relaxed">
-              The industry standard. 4K Video, Shorts & High-Fidelity Audio extraction in milliseconds.
+              Convert videos to MP4 or MP3. Supports 4K resolution, Shorts, and Playlists.
             </p>
           </div>
         </div>
@@ -72,55 +74,55 @@ const BentoGrid = () => {
         <Play size={300} className="absolute -bottom-12 -right-12 text-slate-900/[0.03] rotate-12 group-hover:rotate-0 group-hover:scale-110 transition-all duration-1000 ease-out" fill="currentColor" />
       </Card>
 
-      {/* 2. AI ENGINE (Dark Mode - 1x1) */}
+      {/* 2. AI ENGINE (High Value - 1x1) */}
       <Card to="/tools/ai" delay={0.1} variant="dark" className="md:col-span-1 md:row-span-1 min-h-[240px] bg-[#0A0A0A]">
          <div className="h-full flex flex-col justify-between">
             <div className="flex justify-between items-start">
               <IconBadge color="bg-white/10" textColor="text-white" size="sm">
                 <Wand2 size={22} />
               </IconBadge>
-              <ArrowUpRight className="text-white/40 group-hover:text-white transition-colors" size={22}/>
+              <div className="bg-indigo-500/20 text-indigo-300 px-2 py-1 rounded text-[10px] font-bold uppercase">New</div>
             </div>
             <div>
-               <h3 className="text-2xl font-bold text-white mb-1">AI Engine</h3>
-               <p className="text-sm text-gray-400 font-medium">Auto-Captions & Smart Metadata.</p>
+               <h3 className="text-2xl font-bold text-white mb-1">Audio to Text</h3>
+               <p className="text-sm text-gray-400 font-medium">Transcribe & Summarize</p>
             </div>
          </div>
          {/* Glow */}
          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 bg-indigo-500/30 rounded-full blur-[50px] group-hover:bg-indigo-500/50 transition-colors"></div>
       </Card>
 
-      {/* 3. UTILITIES DECK (Technical Look - 1x1) */}
+      {/* 3. FORMATS (Utility - 1x1) */}
       <Card to="/tools/utils" delay={0.15} className="md:col-span-1 md:row-span-1 bg-slate-50 border-slate-200">
          <div className="h-full flex flex-col justify-between">
              <div className="grid grid-cols-2 gap-3">
-                {[Image, Mic, Scissors, Type].map((Icon, i) => (
+                {[FileAudio, FileVideo, Scissors, Type].map((Icon, i) => (
                     <div key={i} className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex items-center justify-center text-slate-400 group-hover:text-black group-hover:scale-105 transition-all">
                         <Icon size={18} />
                     </div>
                 ))}
              </div>
              <div>
-               <h3 className="text-xl font-bold text-slate-900 mt-4">Toolkit</h3>
-               <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Edit & Enhance</p>
+               <h3 className="text-xl font-bold text-slate-900 mt-4">Editors</h3>
+               <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Trim, Crop & Convert</p>
             </div>
          </div>
       </Card>
 
-      {/* 4. INSTAGRAM (Vibrant - 1x1) */}
+      {/* 4. INSTAGRAM (1x1) */}
       <Card to="/tools/instagram" delay={0.2} className="md:col-span-1 md:row-span-1 min-h-[240px]">
          <div className="h-full flex flex-col justify-between">
             <IconBadge color="bg-gradient-to-tr from-purple-600 to-pink-500" size="sm">
               <Instagram size={22} />
             </IconBadge>
             <div>
-               <h3 className="text-2xl font-bold text-slate-900">Reels</h3>
-               <p className="text-sm text-slate-500 font-medium">Downloader</p>
+               <h3 className="text-2xl font-bold text-slate-900">Instagram</h3>
+               <p className="text-sm text-slate-500 font-medium">Download Reels</p>
             </div>
          </div>
       </Card>
 
-      {/* 5. TIKTOK (Clean - 1x1) */}
+      {/* 5. TIKTOK (1x1) */}
       <Card to="/tools/tiktok" delay={0.25} className="md:col-span-1 md:row-span-1 min-h-[240px]">
          <div className="h-full flex flex-col justify-between">
             <IconBadge color="bg-black" size="sm">
@@ -141,8 +143,8 @@ const BentoGrid = () => {
                   <CloudLightning size={28} />
                 </IconBadge>
                 <div>
-                   <h3 className="text-3xl font-bold text-slate-900 tracking-tight">Spotify</h3>
-                   <p className="text-slate-500 font-medium">320kbps MP3 Converter</p>
+                   <h3 className="text-3xl font-bold text-slate-900 tracking-tight">Spotify Converter</h3>
+                   <p className="text-slate-500 font-medium">Download Playlists to MP3 (320kbps)</p>
                 </div>
             </div>
             <div className="w-12 h-12 rounded-full border border-slate-200 flex items-center justify-center group-hover:bg-black group-hover:text-white group-hover:border-black transition-all duration-300">
