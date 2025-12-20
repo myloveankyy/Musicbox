@@ -1,149 +1,204 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
-  Zap, LayoutGrid, FolderOpen, Settings, LogOut, 
-  Search, Bell, CreditCard, ChevronDown, User,
-  HardDrive, Activity
+  LogOut, LayoutDashboard, HardDrive, 
+  Clock, Activity, Zap, ExternalLink, ShieldCheck 
 } from 'lucide-react';
-import MusicBox from '../components/MusicBox';
-import { Link } from 'react-router-dom';
-
-// --- CONFIG ---
-const USER = { name: "Ankyy Admin", email: "admin@ankyy.com", plan: "PRO" };
-
-// --- SIDEBAR COMPONENT ---
-const SidebarItem = ({ icon: Icon, label, active, onClick }) => (
-  <button 
-    onClick={onClick}
-    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${
-      active 
-        ? "bg-blue-600 text-white shadow-lg shadow-blue-900/20" 
-        : "text-gray-400 hover:bg-white/5 hover:text-white"
-    }`}
-  >
-    <Icon size={20} />
-    <span className="font-medium text-sm">{label}</span>
-  </button>
-);
 
 const Dashboard = () => {
-  const [activeTab, setActiveTab] = useState('converter');
+  const navigate = useNavigate();
+  const [user, setUser] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [stats, setStats] = useState({ totalDownloads: 0 });
+  const [loading, setLoading] = useState(true);
+
+  // --- 1. INITIALIZE & FETCH DATA ---
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    const token = localStorage.getItem('token');
+
+    if (!storedUser || !token) {
+      navigate('/login');
+      return;
+    }
+
+    setUser(JSON.parse(storedUser));
+    fetchUserData(token);
+  }, [navigate]);
+
+  const fetchUserData = async (token) => {
+    const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+    
+    try {
+      // Parallel Fetch
+      const [histRes, statRes] = await Promise.all([
+        fetch(`${API_URL}/user/history`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(`${API_URL}/user/stats`, { headers: { 'Authorization': `Bearer ${token}` } })
+      ]);
+
+      const histData = await histRes.json();
+      const statData = await statRes.json();
+
+      if (histData.success) setHistory(histData.history);
+      if (statData.totalDownloads) setStats(statData);
+      
+    } catch (err) {
+      console.error("Dashboard Sync Failed:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- 2. ACTIONS ---
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/');
+  };
+
+  if (loading) return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+      <div className="animate-pulse text-slate-500 font-mono text-sm">DECRYPTING ARCHIVES...</div>
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-[#020617] text-white font-sans flex overflow-hidden">
+    <div className="min-h-screen bg-slate-950 text-white font-sans selection:bg-indigo-500/30">
       
-      {/* === SIDEBAR === */}
-      <aside className="w-64 bg-[#0f172a]/50 backdrop-blur-xl border-r border-white/5 hidden md:flex flex-col p-6">
+      {/* BACKGROUND NOISE */}
+      <div className="fixed inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-5 pointer-events-none" />
+      <div className="fixed inset-0 bg-gradient-to-br from-slate-950 via-slate-900 to-[#0a0a0a] -z-10" />
+
+      {/* --- SIDEBAR (Mobile Compatible) --- */}
+      <nav className="fixed top-0 left-0 right-0 h-16 bg-slate-900/50 backdrop-blur-xl border-b border-white/5 flex items-center justify-between px-6 z-40">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center">
+            <LayoutDashboard className="w-4 h-4 text-white" />
+          </div>
+          <span className="font-bold tracking-tight hidden sm:block">COMMAND CENTER</span>
+        </div>
         
-        {/* Brand */}
-        <div className="flex items-center gap-3 mb-10 px-2">
-           <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
-              <Zap size={20} className="text-white fill-white"/>
-           </div>
-           <div>
-              <h1 className="font-bold text-lg leading-none">MusicBox</h1>
-              <span className="text-[10px] text-blue-400 font-mono tracking-widest uppercase">Console v2.5</span>
-           </div>
+        <div className="flex items-center gap-6">
+          <div className="flex flex-col items-end mr-2">
+            <span className="text-xs font-bold text-slate-200">{user?.username}</span>
+            <span className="text-[10px] text-indigo-400 font-mono">ENCRYPTION: ACTIVE</span>
+          </div>
+          <button 
+            onClick={handleLogout}
+            className="p-2 hover:bg-white/5 rounded-lg transition-colors text-slate-400 hover:text-red-400"
+            title="Terminate Session"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
+      </nav>
+
+      {/* --- MAIN CONTENT --- */}
+      <main className="pt-24 pb-20 max-w-6xl mx-auto px-6">
+        
+        {/* HEADER */}
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-12"
+        >
+          <h1 className="text-3xl font-bold tracking-tighter mb-2">Operational Status</h1>
+          <p className="text-slate-400 font-mono text-sm">System Ready. Unlimited Bandwidth Authorized.</p>
+        </motion.div>
+
+        {/* STAT GRID */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+          <StatCard 
+            icon={HardDrive} 
+            label="Total Extractions" 
+            value={stats.totalDownloads} 
+            sub="Lifetime" 
+          />
+          <StatCard 
+            icon={ShieldCheck} 
+            label="Security Level" 
+            value="CLASS A" 
+            sub="Rate Limits: Bypassed" 
+            color="text-green-400"
+          />
+          <StatCard 
+            icon={Zap} 
+            label="System Latency" 
+            value="12ms" 
+            sub="Optimal" 
+            color="text-yellow-400"
+          />
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 space-y-2">
-           <SidebarItem icon={LayoutGrid} label="Converter" active={activeTab === 'converter'} onClick={() => setActiveTab('converter')} />
-           <SidebarItem icon={FolderOpen} label="Library" active={activeTab === 'library'} onClick={() => setActiveTab('library')} />
-           <SidebarItem icon={Activity} label="Analytics" active={activeTab === 'analytics'} onClick={() => setActiveTab('analytics')} />
-           <div className="pt-8 pb-2">
-              <span className="text-xs font-bold text-gray-600 uppercase px-4">System</span>
-           </div>
-           <SidebarItem icon={CreditCard} label="Billing & Plan" active={activeTab === 'billing'} onClick={() => setActiveTab('billing')} />
-           <SidebarItem icon={Settings} label="Settings" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
-        </nav>
+        {/* HISTORY FEED */}
+        <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden backdrop-blur-sm">
+          <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-white/5">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-indigo-400" />
+              <h3 className="text-sm font-bold tracking-wide">RECENT EXTRACTIONS</h3>
+            </div>
+            <Link to="/tools/youtube" className="text-[10px] font-bold bg-indigo-500 hover:bg-indigo-600 px-3 py-1.5 rounded text-white transition-colors">
+              NEW OPERATION
+            </Link>
+          </div>
 
-        {/* User Profile */}
-        <div className="mt-auto pt-6 border-t border-white/5">
-           <div className="flex items-center gap-3 px-2">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-r from-gray-700 to-gray-600 flex items-center justify-center text-white font-bold">
-                 {USER.name[0]}
-              </div>
-              <div className="flex-1 min-w-0">
-                 <h4 className="text-sm font-bold truncate">{USER.name}</h4>
-                 <p className="text-xs text-gray-500 truncate">{USER.email}</p>
-              </div>
-              <Link to="/auth" className="text-gray-500 hover:text-red-400 transition">
-                 <LogOut size={18}/>
-              </Link>
-           </div>
-        </div>
-      </aside>
-
-      {/* === MAIN CONTENT === */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
-        {/* Background Texture */}
-        <div className="absolute inset-0 z-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] pointer-events-none"></div>
-
-        {/* TOP HEADER */}
-        <header className="h-20 border-b border-white/5 bg-[#020617]/80 backdrop-blur-md flex items-center justify-between px-8 z-20">
-           <h2 className="text-xl font-bold text-white capitalize">{activeTab}</h2>
-           
-           <div className="flex items-center gap-6">
-              <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10 text-sm text-gray-400">
-                 <HardDrive size={14}/>
-                 <span>Storage: 4.2GB / 10GB</span>
-              </div>
-              <button className="relative text-gray-400 hover:text-white transition">
-                 <Bell size={20}/>
-                 <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full"></span>
-              </button>
-           </div>
-        </header>
-
-        {/* CONTENT AREA */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar z-10">
-           
-           {activeTab === 'converter' && (
-              <div className="max-w-5xl mx-auto">
-                 {/* Welcome Banner */}
-                 <motion.div 
-                    initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-                    className="mb-8 p-8 rounded-3xl bg-gradient-to-r from-blue-900/20 to-purple-900/20 border border-blue-500/20 relative overflow-hidden"
-                 >
-                    <div className="relative z-10 flex justify-between items-center">
-                       <div>
-                          <h2 className="text-3xl font-bold text-white mb-2">Ready to extract, Admin?</h2>
-                          <p className="text-blue-200">Your PRO plan enables 8K downloads and Priority Queue.</p>
-                       </div>
-                       <div className="hidden md:block">
-                          <button className="bg-white text-black px-6 py-2 rounded-full font-bold text-sm hover:bg-gray-200 transition">
-                             View Plan
-                          </button>
-                       </div>
+          <div className="divide-y divide-white/5">
+            {history.length > 0 ? (
+              history.map((log, i) => (
+                <div key={i} className="px-6 py-4 flex items-center justify-between hover:bg-white/5 transition-colors group">
+                  <div className="flex items-center gap-4 overflow-hidden">
+                    <div className="w-8 h-8 rounded bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-500 uppercase shrink-0">
+                      {log.platform.substring(0,2)}
                     </div>
-                    {/* Decor */}
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl"></div>
-                 </motion.div>
-
-                 {/* THE REACTOR (MusicBox Component) */}
-                 <div className="bg-[#0f172a]/50 backdrop-blur-xl border border-white/10 rounded-3xl p-1 md:p-6 shadow-2xl">
-                    {/* We pass a dummy function to bypass the auth wall since we are already logged in */}
-                    <MusicBox onDownloadStart={() => console.log("Authorized")} />
-                 </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-200 truncate pr-4">{log.title}</p>
+                      <p className="text-[10px] text-slate-500 font-mono">
+                        {new Date(log.timestamp).toLocaleDateString()} • {log.type || 'MP4'}
+                      </p>
+                    </div>
+                  </div>
+                  <a 
+                    href={log.url} 
+                    target="_blank" 
+                    rel="noreferrer"
+                    className="p-2 text-slate-500 hover:text-white transition-colors opacity-0 group-hover:opacity-100"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                </div>
+              ))
+            ) : (
+              <div className="p-12 text-center text-slate-500 font-mono text-sm">
+                NO OPERATIONS RECORDED.
               </div>
-           )}
-
-           {activeTab === 'library' && (
-              <div className="max-w-5xl mx-auto text-center py-20">
-                 <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-6">
-                    <FolderOpen size={48} className="text-gray-600"/>
-                 </div>
-                 <h3 className="text-2xl font-bold text-white mb-2">Library Sync Active</h3>
-                 <p className="text-gray-500">Your download history is automatically cached in the Converter tab.</p>
-              </div>
-           )}
-
+            )}
+          </div>
         </div>
-      </main>
 
+      </main>
     </div>
   );
 };
+
+// Sub-component
+const StatCard = ({ icon: Icon, label, value, sub, color = "text-white" }) => (
+  <motion.div 
+    whileHover={{ y: -5 }}
+    className="bg-white/5 border border-white/10 p-6 rounded-2xl relative overflow-hidden group"
+  >
+    <div className={`absolute top-0 right-0 p-4 opacity-20 ${color}`}>
+      <Icon className="w-16 h-16 transform rotate-12 translate-x-4 -translate-y-4" />
+    </div>
+    <div className="relative z-10">
+      <div className="flex items-center gap-2 text-slate-400 mb-2">
+        <Icon className="w-4 h-4" />
+        <span className="text-xs font-bold uppercase tracking-wider">{label}</span>
+      </div>
+      <div className={`text-3xl font-bold tracking-tight mb-1 ${color}`}>{value}</div>
+      <div className="text-[10px] font-mono text-slate-500">{sub}</div>
+    </div>
+  </motion.div>
+);
 
 export default Dashboard;

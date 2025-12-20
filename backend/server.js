@@ -1,276 +1,214 @@
-/* --- backend/server.js (MusicBox Standalone Engine) --- */
+/* --- backend/server.js (v8.0 Hybrid Engine) --- */
 
 require('dotenv').config();
 const express = require('express');
+const mongoose = require('mongoose');
 const cors = require('cors');
+const morgan = require('morgan');
+const YTDlpWrap = require('yt-dlp-wrap').default;
 const path = require('path');
 const fs = require('fs');
-const http = require('http'); 
-const { Server } = require('socket.io'); 
-const mongoose = require('mongoose'); 
-const YTDlpWrap = require('yt-dlp-wrap').default;
-const ffmpegPath = require('ffmpeg-static');
-const archiver = require('archiver');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
-// --- ENVIRONMENT DETECTION ---
-const IS_WINDOWS = process.platform === 'win32';
-const BINARY_NAME = IS_WINDOWS ? 'yt-dlp.exe' : 'yt-dlp';
+// --- IMPORTS ---
+const User = require('./models/User');
+const DownloadLog = require('./models/DownloadLog');
+const { identifyUser, checkRateLimit } = require('./middleware/gatekeeper');
 
 // --- CONFIGURATION ---
-const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/musicbox_standalone'; 
-// The Admin Panel domain that is allowed to control this engine
-const ADMIN_ORIGIN = process.env.ADMIN_ORIGIN || 'https://ankyy.com'; 
-
-// --- APP SETUP ---
 const app = express();
-const server = http.createServer(app); 
+const PORT = process.env.PORT || 5000;
+const BINARY_PATH = path.join(__dirname, 'yt-dlp'); // Binary lives in root/backend/yt-dlp
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_do_not_use_in_prod';
 
-// Allow Frontend (Self) + Admin (Remote)
-const ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "https://musicbox.life",
-    "https://www.musicbox.life",
-    ADMIN_ORIGIN 
-];
+// --- MIDDLEWARE ---
+app.use(cors()); 
+app.use(express.json()); 
+app.use(morgan('dev')); // "Velvet Thunder" logging
 
-const io = new Server(server, {
-    cors: { origin: ALLOWED_ORIGINS, methods: ["GET", "POST"] }
-});
+// --- DATABASE (The Memory) ---
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log('⚡ [DB] MongoDB Atlas Connected'))
+  .catch(err => console.error('❌ [DB] Connection Failed:', err));
 
-app.use(cors({ origin: ALLOWED_ORIGINS }));
-app.use(express.json({ limit: '50mb' })); 
-app.use(express.urlencoded({ extended: true }));
-
-// --- STATIC PATHS ---
-const downloadDir = path.join(__dirname, 'downloads');
-if (!fs.existsSync(downloadDir)) fs.mkdirSync(downloadDir);
-app.use('/downloads', express.static(downloadDir));
-
-// --- MONGODB ---
-mongoose.connect(MONGO_URI)
-    .then(() => console.log('✅ MongoDB Connected (MusicBox Engine)'))
-    .catch(err => console.error('❌ MongoDB Error:', err));
-
-// --- FILE SCHEMA ONLY (No Blog) ---
-const FileSchema = new mongoose.Schema({
-    id: { type: Number, required: true, unique: true },
-    title: String,
-    filename: String,
-    type: String,
-    quality: String,
-    effect: String,
-    thumbnail: String,
-    date: { type: Date, default: Date.now },
-    size: String,
-    status: String,
-    downloadDuration: Number
-});
-const FileModel = mongoose.model('File', FileSchema);
-
-// --- YT-DLP ENGINE SETUP ---
-const binaryPath = path.join(__dirname, BINARY_NAME);
-let ytDlpWrap;
-
-const ensureBinaryExists = async () => {
-    if (!fs.existsSync(binaryPath)) {
-        console.log(`⏳ Downloading ${BINARY_NAME}...`);
-        try { 
-            await YTDlpWrap.downloadFromGithub(binaryPath); 
-            if (!IS_WINDOWS) fs.chmodSync(binaryPath, '755');
-            console.log(`✅ Engine Ready.`);
-        } catch (err) { console.error('❌ Engine DL Failed:', err); }
-    }
-    ytDlpWrap = new YTDlpWrap(binaryPath);
-};
-ensureBinaryExists();
-
-// --- QUEUE SYSTEM ---
-class DownloadQueue {
-    constructor(concurrency = 2) { 
-        this.queue = [];
-        this.activeCount = 0;
-        this.concurrency = concurrency;
-    }
-    add(task) {
-        this.queue.push(task);
-        this.processNext();
-        this.emitUpdate();
-    }
-    processNext() {
-        if (this.activeCount >= this.concurrency || this.queue.length === 0) return;
-        const task = this.queue.shift();
-        this.activeCount++;
-        this.emitUpdate();
-        task().finally(() => {
-            this.activeCount--;
-            this.processNext();
-            this.emitUpdate();
-        });
-    }
-    emitUpdate() {
-        // Emit to everyone listening (Frontend + Remote Admin)
-        io.emit('queue_update', { length: this.queue.length, active: this.activeCount });
-    }
-}
-const queue = new DownloadQueue(2);
-
-// --- SOCKET.IO ---
-io.on('connection', (socket) => {
-    // Just emit stats on connection
-    emitStats();
-});
-
-const emitStats = async () => {
-    try {
-        const totalFiles = await FileModel.countDocuments();
-        const recent = await FileModel.find().sort({ date: -1 }).limit(10);
-        let totalSizeMB = 0;
-        const allFiles = await FileModel.find();
-        allFiles.forEach(f => { totalSizeMB += parseFloat(f.size || 0); });
-
-        io.emit('stats_update', {
-            totalFiles,
-            storageUsage: totalSizeMB.toFixed(1),
-            recentActivity: recent
-        });
-    } catch(e) {}
-};
-
-// ======================================================
-// CONVERSION ROUTES
-// ======================================================
-
-app.post('/api/convert', (req, res) => {
-    if (!ytDlpWrap) return res.status(503).json({ success: false, message: "Initializing..." });
-    const { url, type, quality = 'max', effect = 'none' } = req.body;
-    
-    const downloadTask = async () => {
-        const startTime = Date.now();
+// --- ENGINE INIT ---
+const initEngine = async () => {
+    if (!fs.existsSync(BINARY_PATH)) {
+        console.log("⏳ [SYSTEM] Downloading yt-dlp binary...");
         try {
-            io.emit('log', { message: `Started: ${url}`, type: 'info' });
-            
-            // 1. Get Metadata
-            const metadataJSON = await ytDlpWrap.execPromise([url, '--dump-json', '--no-playlist', '--no-warnings']);
-            const meta = JSON.parse(metadataJSON);
-            const cleanTitle = meta.title.replace(/[^\w\s-]/gi, '') || "downloaded_video";
-            
-            // 2. Prepare Paths
-            let suffix = '';
-            if (type === 'mp4') suffix += `-${quality}`;
-            if (effect !== 'none') suffix += `-${effect}`; 
-            
-            const filename = `${cleanTitle}${suffix}.${type}`;
-            const outputTemplate = path.join(downloadDir, `${cleanTitle}${suffix}.%(ext)s`);
-
-            // 3. Build Arguments
-            let args = [url, '-o', outputTemplate, '--no-playlist', '--force-overwrites', '--ffmpeg-location', ffmpegPath, '--add-metadata', '--embed-thumbnail'];
-            
-            if (fs.existsSync(path.join(__dirname, 'cookies.txt'))) {
-                args.push('--cookies', path.join(__dirname, 'cookies.txt'));
-            }
-
-            // 4. Effects & Quality
-            let audioFilters = [];
-            if (effect === 'slowed') audioFilters.push("asetrate=44100*0.88,atempo=1.0,aecho=0.8:0.9:1000:0.3");
-            else if (effect === 'nightcore') audioFilters.push("asetrate=44100*1.25,atempo=1.0");
-            else if (effect === 'bassboost') audioFilters.push("bass=g=10:f=110:w=0.6");
-
-            if (type === 'mp3') {
-                args.push('-x', '--audio-format', 'mp3');
-                if (audioFilters.length > 0) args.push('--postprocessor-args', `ffmpeg:-af "${audioFilters.join(',')}"`);
-            } else {
-                let formatString = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best';
-                if(quality === '1080') formatString = 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]';
-                if(quality === '720') formatString = 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]';
-                if(quality === '360') formatString = 'bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]';
-                
-                args.push('-f', formatString, '--merge-output-format', 'mp4');
-                if (audioFilters.length > 0) args.push('--postprocessor-args', `ffmpeg:-af "${audioFilters.join(',')}"`);
-            }
-
-            // 5. Execute
-            await ytDlpWrap.execPromise(args);
-            
-            // 6. Save Record
-            const stats = fs.statSync(path.join(downloadDir, filename));
-            const sizeMB = (stats.size / (1024 * 1024)).toFixed(1);
-            const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-
-            const record = {
-                id: Date.now(), title: cleanTitle, filename: filename, type: type, quality: quality,
-                effect: effect, thumbnail: meta.thumbnail, date: new Date(), size: sizeMB, status: 'Success', downloadDuration: duration
-            };
-            
-            await new FileModel(record).save();
-            io.emit('log', { message: `Finished: ${cleanTitle}`, type: 'success' });
-            emitStats();
-
-            if (!res.headersSent) res.json({ success: true, data: record });
-
-        } catch (error) {
-            console.error(error);
-            io.emit('log', { message: `Failed: ${url}`, type: 'error' });
-            if (!res.headersSent) res.status(500).json({ success: false, message: "Failed" });
+            await YTDlpWrap.downloadFromGithub(BINARY_PATH);
+            console.log("✅ [SYSTEM] Engine Installed.");
+            // Ensure executable permissions (Linux/Mac)
+            fs.chmodSync(BINARY_PATH, '755');
+        } catch (err) {
+            console.error("❌ [SYSTEM] Binary Download Failed:", err);
         }
-    };
-    queue.add(downloadTask);
+    }
+};
+initEngine();
+
+const ytDlpWrap = new YTDlpWrap(BINARY_PATH);
+
+// ------------------------------------------
+// 🔐 AUTH ROUTES (The Keys)
+// ------------------------------------------
+
+// 1. MINT IDENTITY (Register)
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const { username, email, password } = req.body;
+        
+        const existing = await User.findOne({ email });
+        if (existing) return res.status(400).json({ success: false, message: "Identity exists." });
+
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        const newUser = new User({ username, email, password: hashedPassword });
+        await newUser.save();
+
+        res.status(201).json({ success: true, message: "Identity Established." });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
 });
 
-// Playlist Fetch
-app.post('/api/playlist', async (req, res) => {
-    if (!ytDlpWrap) return res.status(503).json({ success: false, message: "Initializing..." });
+// 2. ACCESS PROTOCOL (Login)
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        
+        const user = await User.findOne({ email });
+        if (!user) return res.status(400).json({ success: false, message: "Identity not found." });
+
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) return res.status(400).json({ success: false, message: "Invalid Credentials." });
+
+        const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+
+        res.json({ 
+            success: true,
+            token, 
+            user: { id: user._id, username: user.username, email: user.email } 
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ------------------------------------------
+// ⚙️ THE CORE ENGINE (Extraction)
+// ------------------------------------------
+
+app.get('/', (req, res) => res.json({ status: 'Operational', engine: 'yt-dlp', mode: 'Hybrid' }));
+
+// THE UNIVERSAL EXTRACTOR
+// Flow: Identify User -> Check Limits -> Extract -> Log -> Return
+app.post('/api/extract', identifyUser, checkRateLimit, async (req, res) => {
     const { url } = req.body;
+    if (!url) return res.status(400).json({ success: false, error: "No URL detected." });
+
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const userId = req.user ? req.user.id : null;
+
+    console.log(`[ENGINE] Processing: ${url} | User: ${userId ? 'REGISTERED' : 'GUEST'}`);
+
     try {
-        const metadataJSON = await ytDlpWrap.execPromise([url, '--flat-playlist', '--dump-single-json', '--no-warnings']);
-        const playlistData = JSON.parse(metadataJSON);
-        const entries = (playlistData.entries || []).map(entry => ({
-            title: entry.title,
-            url: entry.url || `https://www.youtube.com/watch?v=${entry.id}`,
-            id: entry.id
-        }));
-        res.json({ success: true, videos: entries, title: playlistData.title });
-    } catch (error) { res.status(500).json({ success: false }); }
+        // 1. EXECUTE BINARY (Get Metadata only)
+        // We use --dump-json to get direct links without downloading to server disk
+        const metadataString = await ytDlpWrap.execPromise([
+            url,
+            '--dump-json',
+            '--no-playlist',
+            '--no-warnings'
+        ]);
+        
+        const data = JSON.parse(metadataString);
+
+        // 2. NORMALIZE DATA
+        // yt-dlp returns different fields for different sites. We standardize here.
+        const payload = {
+            title: data.title || `Extracted_Media_${Date.now()}`,
+            author: data.uploader || data.channel || "Unknown",
+            thumbnail: data.thumbnail, 
+            // Prefer the requested format URL, fall back to simple url
+            url: data.url || (data.formats && data.formats[data.formats.length - 1].url), 
+            type: data.ext || "mp4",
+            size: data.filesize_approx ? `${(data.filesize_approx / 1024 / 1024).toFixed(1)} MB` : "HD", 
+            platform: data.extractor_key
+        };
+
+        // 3. LOG TRANSACTION (Required for Rate Limiting)
+        await DownloadLog.create({
+            url: url,
+            platform: payload.platform,
+            title: payload.title,
+            ip: clientIp,
+            userId: userId
+        });
+
+        console.log(`[ENGINE] Success: ${payload.title}`);
+        res.json({ success: true, data: payload });
+
+    } catch (error) {
+        console.error(`[ENGINE] Extraction Error: ${error.message}`);
+        res.status(500).json({ 
+            success: false, 
+            error: "Extraction Failed. Link might be private, geo-locked, or unsupported." 
+        });
+    }
 });
 
-// Zip Download
-app.post('/api/zip', async (req, res) => {
-    const { fileIds } = req.body;
-    const filesToZip = await FileModel.find({ id: { $in: fileIds } });
-    if(filesToZip.length === 0) return res.status(400).json({success: false});
-    const archive = archiver('zip', { zlib: { level: 9 } });
-    res.attachment('MusicBox_Download.zip');
-    archive.pipe(res);
-    filesToZip.forEach(file => {
-        const filePath = path.join(downloadDir, file.filename);
-        if(fs.existsSync(filePath)) archive.file(filePath, { name: file.filename });
-    });
-    archive.finalize();
-});
+// ------------------------------------------
+// 📊 DASHBOARD ENDPOINTS (User Data)
+// ------------------------------------------
 
-// History API (Public to Frontend, Secured in future for remote admin)
-app.get('/api/history', async (req, res) => {
+// USER HISTORY
+app.get('/api/user/history', identifyUser, async (req, res) => {
+    if (!req.user) return res.status(401).json({ success: false, error: "Access Denied." });
+
     try {
-        let history = await FileModel.find().sort({ date: -1 });
-        let totalSizeBytes = 0;
-        history.forEach(record => { if(record.size) totalSizeBytes += (parseFloat(record.size) * 1024 * 1024); });
-        const totalSizeMB = (totalSizeBytes / (1024 * 1024)).toFixed(1);
-        res.json({ success: true, data: history, storage: totalSizeMB });
-    } catch (e) { res.status(500).json({ success: false }); }
+        const history = await DownloadLog.find({ userId: req.user.id })
+            .sort({ timestamp: -1 })
+            .limit(50)
+            .select('title platform url timestamp type');
+
+        res.json({ success: true, history });
+    } catch (err) {
+        res.status(500).json({ success: false, error: "DB Error" });
+    }
 });
 
-// Delete (Used by Client Mode and Remote Admin)
-app.delete('/api/files/:id', async (req, res) => {
+// USER STATS
+app.get('/api/user/stats', identifyUser, async (req, res) => {
+    if (!req.user) return res.status(401).json({ success: false, error: "Access Denied." });
+
     try {
-        // TODO: Add Authorization Check here in Phase 3
-        const fileRecord = await FileModel.findOne({ id: parseInt(req.params.id) });
-        if (!fileRecord) return res.status(404).json({ success: false });
-        const filePath = path.join(downloadDir, fileRecord.filename);
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        await FileModel.deleteOne({ id: parseInt(req.params.id) });
-        emitStats();
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ success: false }); }
+        const count = await DownloadLog.countDocuments({ userId: req.user.id });
+        res.json({ success: true, totalDownloads: count });
+    } catch (err) {
+        res.status(500).json({ success: false, error: "Stats Error" });
+    }
 });
 
-server.listen(PORT, () => console.log(`🚀 MusicBox Engine running on Port ${PORT}`));
+// GLOBAL STATS (Public)
+app.get('/api/stats', async (req, res) => {
+    try {
+        const total = await DownloadLog.countDocuments();
+        res.json({ success: true, totalDownloads: total });
+    } catch (err) {
+        res.status(500).json({ success: false, error: "Stats Unavailable" });
+    }
+});
+
+// --- SERVER START ---
+app.listen(PORT, () => {
+    console.log(`
+    🚀 MUSICBOX ENGINE ACTIVE
+    --------------------------------------
+    PORT:    ${PORT}
+    MODE:    HYBRID (Guest + Auth)
+    --------------------------------------
+    `);
+});

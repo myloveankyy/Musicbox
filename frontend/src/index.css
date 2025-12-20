@@ -2,37 +2,40 @@
 @tailwind components;
 @tailwind utilities;
 
-/* === GLOBAL SMOOTHNESS === */
-html {
-  scroll-behavior: smooth;
+@layer base {
+  body {
+    background-color: #F5F5F7;
+    color: #1D1D1F;
+    font-family: 'Inter', sans-serif;
+    overflow-x: hidden;
+    perspective: 1000px;
+  }
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #000; border-radius: 4px; }
 }
 
-body {
-  background-color: #ffffff;
-  color: #000000;
-  -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
+/* === THE 3D CUBE HERO === */
+.scene { width: 200px; height: 200px; perspective: 600px; }
+.cube { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; }
+.cube-face {
+  position: absolute; width: 200px; height: 200px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(0,0,0,0.1);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 900; font-size: 40px; color: #1D1D1F;
+  backface-visibility: visible;
 }
+/* Cube Rotations */
+.face-front  { transform: rotateY(0deg) translateZ(100px); }
+.face-right  { transform: rotateY(90deg) translateZ(100px); }
+.face-back   { transform: rotateY(180deg) translateZ(100px); }
+.face-left   { transform: rotateY(-90deg) translateZ(100px); }
+.face-top    { transform: rotateX(90deg) translateZ(100px); }
+.face-bottom { transform: rotateX(-90deg) translateZ(100px); }
 
-/* === TYPOGRAPHY === */
-.tracking-tight-custom {
-  letter-spacing: -0.04em;
-}
-
-/* === SCROLLBAR === */
-*::-webkit-scrollbar {
-  width: 6px;
-}
-*::-webkit-scrollbar-track {
-  background: #ffffff;
-}
-*::-webkit-scrollbar-thumb {
-  background-color: #000000;
-  border-radius: 4px;
-}
-
-/* === SELECTION === */
-::selection {
-  background-color: #000000;
-  color: #ffffff;
+/* === TERMINAL SCANLINE === */
+.scanline {
+  background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.1) 50%, rgba(0,0,0,0.1));
+  background-size: 100% 4px; pointer-events: none;
 }
